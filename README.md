@@ -2,7 +2,7 @@
 lambda to stop and start ec2 instances, auto-scaled instances and rds-instances
 
 ## installation
-deploy the CloudFormation Template Lambda-Instance-Start-Stop.yaml
+deploy the CloudFormation Template Lambda-Instance-Start-Stop.yaml  
 The params are:  
   AccountName:  
     Description: Account name, used to prefix resources  
@@ -33,7 +33,8 @@ Start: cron(0 6 ? * 2-6 *) # UTC time, which is mo-fr 6am
 Stop: cron(0 18 ? * 2-6 *) # UTC time, which is mo-fr 6pm, on weekends instances will remain stopped until next start event on monday  
 Change the cronjob expression for the required behaviour  
 
-## logic   
+## logic  
+   
 The Lambdas will search for instances & autoscaling groups by tag, the following Tag is required to identify an instance to schedule:  
 Key         Value   
 -----------------  

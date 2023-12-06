@@ -34,11 +34,10 @@ Stop: cron(0 18 ? * 2-6 *) # UTC time, which is mo-fr 6pm, on weekends instances
 Change the cronjob expression for the required behaviour  
 
 ## logic  
-   
-The Lambdas will search for instances & autoscaling groups by tag, the following Tag is required to identify an instance to schedule:  
-Key         Value   
------------------  
-Auto-Start	true  
+The Lambdas will search for instances & autoscaling groups by tag, 
+the following Tag is required to identify an instance to schedule:  
+Key         Value  
+Auto-Start	true    
   
 The lambda will start & stop EC2 instances and RDS instances and will change the minSixe and DesiredCapacity for autoscaling groups.   
   

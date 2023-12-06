@@ -1,0 +1,339 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Lambda to start and stop tagged instances. EC2, RDS and Autoscaled Instances must be tagged with : Auto-Start"
+
+Parameters:
+
+  AccountName:
+    Description: Account name, used to prefix resources
+    Type: String
+
+  OwnerName:
+    Description: An owner name, used in tags
+    Type: String
+    Default: wolfgang.unger
+
+
+  ScheduleExpressionStart:  
+    Description: Cron Job expression, when to start the EC2 and RDS instances
+    Type: String
+    Default: cron(0 6 ? * 2-6 *) # UTC time
+
+  ScheduleExpressionStop:
+    Description: Cron Job expression, when to stop the EC2 and RDS instances
+    Type: String
+    Default: cron(0 18 ? * 2-6 *) # UTC time
+
+Resources:
+  LambdaExecutionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+      Policies:
+        - PolicyName: !Sub "${AccountName}-lambda-start-stop-instances"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                  - lambda:InvokeAsync
+                Resource:
+                  - "Fn::Sub": "arn:aws:lambda:${AWS::Region}:*:function:*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:CreateLogGroup
+                Resource:
+                  - "Fn::Sub": "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/*:*"
+              - Effect: Allow
+                Action:
+                  - logs:PutLogEvents
+                Resource:
+                  - "Fn::Sub": "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/*:*:*"
+              - Effect: Allow
+                Action:
+                  - ec2:Start*
+                  - ec2:Stop*
+                  - ec2:DescribeInstances
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - rds:DescribeDBClusters
+                  - rds:DescribeDBInstances
+                  - rds:StartDBCluster
+                  - rds:StartDBInstance
+                  - rds:StopDBCluster
+                  - rds:StopDBInstance                
+                Resource: "*"     
+              - Effect: Allow
+                Action:
+                  - elasticloadbalancing:DescribeLoadBalancers
+                  - elasticloadbalancing:DescribeTargetGroups
+                  - autoscaling:*       
+                Resource: "*"      
+      Tags:
+        - Key: Name
+          Value: "LambdaExecutionRole"
+        - Key: Owner
+          Value: !Ref OwnerName
+
+  ########## lambdas 
+  StartInstancesLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.8
+      FunctionName: !Sub "${AccountName}-lambda-start-instances"
+      Role:
+        "Fn::GetAtt":
+          - LambdaExecutionRole
+          - Arn
+      Handler: index.start
+      Code:
+        ZipFile: |
+          import boto3
+          region = 'eu-central-1'
+          ec2 = boto3.client('ec2', region_name=region)
+          rds = boto3.client('rds', region_name=region)
+          asg = boto3.client('autoscaling', region_name=region)
+          response = ec2.describe_instances(Filters=[
+                  {
+                      'Name': 'tag:Auto-Start',
+                      'Values': [
+                          'true',
+                      ]
+                  },
+              ])
+          rds_response = rds.describe_db_instances(
+              Filters=[
+              ],
+              MaxRecords=100,
+              Marker='string'
+          )
+          autoscaling_response = asg.describe_auto_scaling_groups(
+             Filters=[
+                  {
+                      'Name': 'tag:Auto-Start',
+                      'Values': ['true']
+                  },
+             ]
+          )
+          instances = []
+          rds_instances = []
+          autoscaling_groups = []
+
+          for reservation in response["Reservations"]:
+              for instance in reservation["Instances"]:
+                  instances.append(instance["InstanceId"])
+
+          for rds_instance in rds_response["DBInstances"]:
+              rds_instances.append(rds_instance["DBInstanceIdentifier"])
+
+          for autoscaling_group in autoscaling_response["AutoScalingGroups"]:
+              autoscaling_groups.append(autoscaling_group["AutoScalingGroupName"])
+
+          def start(event, context):
+              for instance in instances:
+                  i = [instance]
+                  start_single_instance(i)
+              for rds_instance in rds_instances:
+                  start_single_rds_instance(rds_instance)
+              for autoscaling_group in autoscaling_groups:
+                  start_asg_instances(autoscaling_group)
+
+          def start_single_instance(i):
+              try:
+                ec2.start_instances(InstanceIds=i)
+                print('started  instances: ' + str(i))
+              except:
+                print('error starting instance')   
+
+          def start_single_rds_instance(r):
+              try:
+                rds.start_db_instance(DBInstanceIdentifier=r)
+                print('started  rds instances: ' + str(r))
+              except:
+                print('error starting rds instance') 
+
+          def start_asg_instances(a):
+              try:
+                asg.update_auto_scaling_group(
+                  AutoScalingGroupName=a,
+                  MinSize=1,
+                  DesiredCapacity=1,
+                  MaxSize=1
+                )
+                print('updated autoscaling group configuration to 1 instance: ' + str(a))
+              except:
+                print('error updating autoscaling group '+ str(a) +' configuration to 1 instance')   
+
+      Description: Start tagged instances
+      TracingConfig:
+        Mode: Active
+      Tags:
+        - Key: Name
+          Value: "StartInstancesLambda"
+        - Key: Owner
+          Value: !Ref OwnerName
+
+
+  StopInstancesLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.8
+      FunctionName: !Sub "${AccountName}-lambda-stop-instances"
+      Role:
+        "Fn::GetAtt":
+          - LambdaExecutionRole
+          - Arn
+      Handler: index.stop
+      Code:
+        ZipFile: |
+          import boto3
+          region = 'eu-central-1'
+          ec2 = boto3.client('ec2', region_name=region)
+          rds = boto3.client('rds', region_name=region)
+          asg = boto3.client('autoscaling', region_name=region)
+          response = ec2.describe_instances(Filters=[
+                  {
+                      'Name': 'tag:Auto-Start',
+                      'Values': [
+                          'true',
+                      ]
+                  },
+              ])
+          rds_response = rds.describe_db_instances(
+              Filters=[
+              ],
+              MaxRecords=100,
+              Marker='string'
+          )
+          autoscaling_response = asg.describe_auto_scaling_groups(
+             Filters=[
+                  {
+                      'Name': 'tag:Auto-Start',
+                      'Values': ['true']
+                  },
+             ]
+          )
+
+          instances = []
+          rds_instances = []
+          autoscaling_groups = []
+
+          for reservation in response["Reservations"]:
+              for instance in reservation["Instances"]:
+                  instances.append(instance["InstanceId"])
+
+          for rds_instance in rds_response["DBInstances"]:
+              rds_instances.append(rds_instance["DBInstanceIdentifier"])
+
+          for autoscaling_group in autoscaling_response["AutoScalingGroups"]:
+              autoscaling_groups.append(autoscaling_group["AutoScalingGroupName"])
+
+          def stop(event, context):
+              for instance in instances:
+                  i = [instance]
+                  stop_single_instance(i)
+              for rds_instance in rds_instances:
+                  stop_single_rds_instance(rds_instance)
+              for autoscaling_group in autoscaling_groups:
+                  terminate_asg_instances(autoscaling_group)
+            
+          def stop_single_instance(i):
+              try:
+                ec2.stop_instances(InstanceIds=i)
+                print('stopped  instances: ' + str(i))
+              except:
+                print('error stopping instance')   
+
+          def stop_single_rds_instance(r):
+              try:
+                rds.stop_db_instance(DBInstanceIdentifier=r)
+                print('stopped  rds instances: ' + str(r))
+              except:
+                print('error stopping rds instance')  
+
+          def terminate_asg_instances(a):
+              try:
+                asg.update_auto_scaling_group(
+                  AutoScalingGroupName=a,
+                  MinSize=0,
+                  DesiredCapacity=0
+                )
+                print('updated autoscaling group configuration to 0 instances: ' + str(a))
+              except:
+                print('error updating autoscaling group '+ str(a) +' configuration to 0 instances')  
+
+
+
+
+      Description: Stop tagged instances
+      TracingConfig:
+        Mode: Active
+      Tags:
+        - Key: Name
+          Value: "StopInstancesLambda"
+        - Key: Owner
+          Value: !Ref OwnerName
+
+  ScheduledRuleStart: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Name: StartEC2Instances
+      Description: "Start EC2 nodes at 6:00 (UTC) from Monday to friday"
+      ScheduleExpression: !Ref ScheduleExpressionStart
+      State: "ENABLED"
+      Targets: 
+        - 
+          Arn: 
+            Fn::GetAtt: 
+              - "StartInstancesLambda"
+              - "Arn"
+          Id: "StartEC2Instances"   
+
+  ScheduledRuleStop: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Name: StopEC2Instances
+      Description: "Stop EC2 nodes at 18:00 (UTC) from Monday to friday"
+      ScheduleExpression: !Ref ScheduleExpressionStop
+      State: "ENABLED"
+      Targets: 
+        - 
+          Arn: 
+            Fn::GetAtt: 
+              - "StopInstancesLambda"
+              - "Arn"
+          Id: "StopEC2Instances"
+
+       
+  PermissionForEventsToInvokeLambdaStart: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: !Ref StartInstancesLambda
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: 
+          - "ScheduledRuleStart"
+          - "Arn"        
+  PermissionForEventsToInvokeLambdaStop: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: !Ref StopInstancesLambda
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: 
+        Fn::GetAtt: 
+          - "ScheduledRuleStop"
+          - "Arn"               

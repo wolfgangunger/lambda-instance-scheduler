@@ -1,0 +1,18 @@
+[
+    {
+      "ParameterKey": "AccountName",
+      "ParameterValue": "apps-dev"
+    },
+    {
+      "ParameterKey": "OwnerName",
+      "ParameterValue": "wolfgang.unger"
+    },
+    {
+      "ParameterKey": "ScheduleExpressionStart",
+      "ParameterValue": "cron(0 7 ? * 2-6 *)"
+    },  
+    {
+      "ParameterKey": "ScheduleExpressionStop",
+      "ParameterValue": "cron(0 19 ? * 2-6 *)"
+    }      
+]

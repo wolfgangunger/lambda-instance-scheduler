@@ -73,7 +73,8 @@ Resources:
                   - rds:StartDBCluster
                   - rds:StartDBInstance
                   - rds:StopDBCluster
-                  - rds:StopDBInstance                
+                  - rds:StopDBInstance       
+                   - rds:ListTagsForResource              
                 Resource: "*"     
               - Effect: Allow
                 Action:
@@ -136,7 +137,13 @@ Resources:
                   instances.append(instance["InstanceId"])
 
           for rds_instance in rds_response["DBInstances"]:
-              rds_instances.append(rds_instance["DBInstanceIdentifier"])
+              instance_arn = rds_instance["DBInstanceArn"]
+              instance_tags = rds.list_tags_for_resource(ResourceName=instance_arn)
+              db_tags = instance_tags['TagList']
+              tag = next(iter(filter(lambda tag: tag['Key'] == 'Auto-Start' and tag['Value'] == 'true', db_tags)), None)
+              if tag:
+                #print ("got tag")
+                rds_instances.append(rds_instance["DBInstanceIdentifier"])
 
           for autoscaling_group in autoscaling_response["AutoScalingGroups"]:
               autoscaling_groups.append(autoscaling_group["AutoScalingGroupName"])
@@ -235,7 +242,13 @@ Resources:
                   instances.append(instance["InstanceId"])
 
           for rds_instance in rds_response["DBInstances"]:
-              rds_instances.append(rds_instance["DBInstanceIdentifier"])
+              instance_arn = rds_instance["DBInstanceArn"]
+              instance_tags = rds.list_tags_for_resource(ResourceName=instance_arn)
+              db_tags = instance_tags['TagList']
+              tag = next(iter(filter(lambda tag: tag['Key'] == 'Auto-Start' and tag['Value'] == 'true', db_tags)), None)
+              if tag:
+                #print ("got tag")
+                rds_instances.append(rds_instance["DBInstanceIdentifier"])
 
           for autoscaling_group in autoscaling_response["AutoScalingGroups"]:
               autoscaling_groups.append(autoscaling_group["AutoScalingGroupName"])

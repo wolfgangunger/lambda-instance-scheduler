@@ -94,6 +94,7 @@ Resources:
     Properties:
       Runtime: python3.8
       FunctionName: !Sub "${AccountName}-lambda-start-instances"
+      Timeout: 30
       Role:
         "Fn::GetAtt":
           - LambdaExecutionRole
@@ -198,6 +199,7 @@ Resources:
     Properties:
       Runtime: python3.8
       FunctionName: !Sub "${AccountName}-lambda-stop-instances"
+      Timeout: 30
       Role:
         "Fn::GetAtt":
           - LambdaExecutionRole
